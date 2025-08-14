@@ -60,6 +60,20 @@
             <p id="message-box" class="mt-4 text-center text-sm font-semibold text-red-500 dark:text-red-400"></p>
         </div>
 
+        <!-- Moderátorská sekcia -->
+        <div id="moderator-section" class="bg-white-transparent dark:bg-gray-800-transparent rounded-xl shadow-lg p-6 mb-6 backdrop-blur-sm hidden">
+            <h2 class="text-2xl font-bold mb-4">Moderátorský panel</h2>
+            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                Zadaním vášho používateľského ID sa zobrazia všetky fotky, vrátane zabanovaných.
+            </p>
+            <div class="flex items-center gap-4">
+                <input type="text" id="moderator-id-input" placeholder="Zadajte svoje ID" class="flex-grow rounded-lg p-2 border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 text-sm">
+                <button id="moderator-login-btn" class="bg-blue-500 text-white rounded-lg px-4 py-2 hover:bg-blue-600 transition-colors duration-200">
+                    Potvrdiť
+                </button>
+            </div>
+        </div>
+
         <!-- Galéria suborov -->
         <div id="gallery-container" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             <!-- Sem sa budú dynamicky vkladať médiá -->
@@ -68,6 +82,7 @@
 
     <!-- Päticka aplikácie -->
     <footer class="w-full max-w-4xl mx-auto mt-8 p-4 text-center text-gray-500 dark:text-gray-400">
+        <p>Tvoje ID: <span id="user-id-display" class="font-bold"></span></p>
         <p>Autor: Kristián Stareček</p>
         <p>Spoločnosť: GAMEPLA631</p>
         <p>Telefón: <a href="tel:0951632704" class="text-blue-500 hover:underline">0951632704</a></p>
@@ -85,7 +100,24 @@
         </div>
     </div>
 
-    <script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, collection, onSnapshot, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Initialize Firebase
+        let db;
+        let auth;
+        let userId = null;
+        let isModerator = false;
+
+        // UI elements
         const fileInput = document.getElementById('file-input');
         const galleryContainer = document.getElementById('gallery-container');
         const uploadStatus = document.getElementById('upload-status');
@@ -95,51 +127,91 @@
         const imageModal = document.getElementById('image-modal');
         const modalImage = document.getElementById('modal-image');
         const closeModalButton = document.getElementById('close-modal');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const moderatorIdInput = document.getElementById('moderator-id-input');
+        const moderatorLoginBtn = document.getElementById('moderator-login-btn');
+        const moderatorSection = document.getElementById('moderator-section');
 
-        // Klúč pre localStorage
-        const LOCAL_STORAGE_KEY = 'gpsm_gallery_media';
-        
         // Funkcia na zobrazenie spravy pre uzivatela
         function showMessage(text, isError = false) {
             messageBox.textContent = text;
             messageBox.className = isError 
                 ? 'mt-4 text-center text-sm font-semibold text-red-500 dark:text-red-400' 
                 : 'mt-4 text-center text-sm font-semibold text-green-500 dark:text-green-400';
-            setTimeout(() => { messageBox.textContent = ''; }, 5000);
+            setTimeout(() => { messageBox.textContent = '', messageBox.className = ''; }, 5000);
         }
 
-        // Funkcia na ulozenie dát do localStorage
-        function saveData(data) {
-            try {
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
-                return true;
-            } catch (e) {
-                console.error("Chyba pri ukladani do localStorage:", e);
-                showMessage("Chyba pri ukladani. Mozno mate plne ulozisko.", true);
-                return false;
+        // Funkcia na renderovanie galerie
+        function renderGallery(mediaFiles) {
+            galleryContainer.innerHTML = ''; // Vymazanie existujucej galerie
+            const filesToDisplay = isModerator ? mediaFiles : mediaFiles.filter(file => !file.isBanned);
+
+            if (filesToDisplay.length === 0) {
+                galleryContainer.innerHTML = `<div class="w-full text-center col-span-full py-10 text-gray-500 dark:text-gray-400">Zatiaľ žiadne súbory. Nahrajte prvú fotku alebo video!</div>`;
+                return;
             }
-        }
 
-        // Funkcia na nacitanie dát z localStorage
-        function loadData() {
-            try {
-                const data = localStorage.getItem(LOCAL_STORAGE_KEY);
-                return data ? JSON.parse(data) : [];
-            } catch (e) {
-                console.error("Chyba pri nacitavani z localStorage:", e);
-                return [];
-            }
-        }
-
-        // Funkcia na vymazanie média
-        function deleteMedia(index) {
-            const mediaFiles = loadData();
-            if (index >= 0 && index < mediaFiles.length) {
-                mediaFiles.splice(index, 1);
-                if (saveData(mediaFiles)) {
-                    showMessage("Súbor bol úspešne vymazaný.");
-                    renderGallery();
+            filesToDisplay.forEach(file => {
+                const card = document.createElement('div');
+                card.className = "relative aspect-square rounded-lg overflow-hidden shadow-lg transform transition-transform duration-200 hover:scale-105";
+                
+                let mediaElement;
+                if (file.type.startsWith('video/')) {
+                    mediaElement = `<video src="${file.data}" alt="Video" class="w-full h-full object-cover" preload="metadata" controls></video>`;
+                } else {
+                    mediaElement = `<img onclick="openImageModal('${file.data}')" src="${file.data}" alt="Obrázok" class="w-full h-full object-cover cursor-pointer" loading="lazy">`;
                 }
+
+                const moderatorControls = isModerator ? `
+                    <button onclick="banMedia('${file.id}', true)" class="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors duration-200 ${file.isBanned ? 'hidden' : ''}">
+                        Zabanovať
+                    </button>
+                    <button onclick="banMedia('${file.id}', false)" class="bg-green-500 text-white p-2 rounded-full hover:bg-green-600 transition-colors duration-200 ${!file.isBanned ? 'hidden' : ''}">
+                        Odblokovať
+                    </button>
+                ` : '';
+                
+                card.innerHTML = `
+                    ${mediaElement}
+                    <div class="absolute inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity duration-200">
+                        <button onclick="downloadMedia(event, '${file.data}', '${file.name}')" class="bg-blue-500 text-white p-2 rounded-full mb-2 hover:bg-blue-600 transition-colors duration-200">
+                            Stiahnuť
+                        </button>
+                        <button onclick="deleteMedia('${file.id}')" class="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors duration-200">
+                            Vymazať
+                        </button>
+                        ${moderatorControls}
+                    </div>
+                    ${file.isBanned ? `<div class="absolute top-0 left-0 bg-red-600 text-white text-xs px-2 py-1 rounded-br-lg">Zabanované</div>` : ''}
+                `;
+
+                galleryContainer.appendChild(card);
+            });
+        }
+        
+        // Funkcia na vymazanie média
+        async function deleteMedia(docId) {
+            try {
+                if (confirm('Naozaj chcete vymazať tento súbor?')) {
+                    await deleteDoc(doc(db, `artifacts/${appId}/public/data/media`, docId));
+                    showMessage("Súbor bol úspešne vymazaný.");
+                }
+            } catch (e) {
+                console.error("Chyba pri mazani suboru:", e);
+                showMessage("Chyba pri mazani suboru.", true);
+            }
+        }
+        
+        // Funkcia na zabanovanie/odblokovanie média
+        async function banMedia(docId, isBannedStatus) {
+             try {
+                await updateDoc(doc(db, `artifacts/${appId}/public/data/media`, docId), {
+                    isBanned: isBannedStatus
+                });
+                showMessage(isBannedStatus ? "Súbor bol zabanovaný." : "Súbor bol odblokovaný.");
+            } catch (e) {
+                console.error("Chyba pri zmene statusu banovania:", e);
+                showMessage("Chyba pri zmene statusu banovania.", true);
             }
         }
 
@@ -178,47 +250,11 @@
             }
         });
 
-        // Funkcia na renderovanie galerie
-        function renderGallery() {
-            const mediaFiles = loadData();
-            galleryContainer.innerHTML = ''; // Vymazanie existujucej galerie
-            if (mediaFiles.length === 0) {
-                galleryContainer.innerHTML = `<div class="w-full text-center col-span-full py-10 text-gray-500 dark:text-gray-400">Zatiaľ žiadne súbory. Nahrajte prvú fotku alebo video!</div>`;
-                return;
-            }
-            mediaFiles.forEach((file, index) => {
-                const card = document.createElement('div');
-                card.className = "relative aspect-square rounded-lg overflow-hidden shadow-lg transform transition-transform duration-200 hover:scale-105";
-                
-                let mediaElement;
-                if (file.type.startsWith('video/')) {
-                    mediaElement = `<video src="${file.data}" alt="Video" class="w-full h-full object-cover" preload="metadata" controls></video>`;
-                } else {
-                    mediaElement = `<img onclick="openImageModal('${file.data}')" src="${file.data}" alt="Obrázok" class="w-full h-full object-cover cursor-pointer" loading="lazy">`;
-                }
-                
-                card.innerHTML = `
-                    ${mediaElement}
-                    <div class="absolute inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity duration-200">
-                        <button onclick="downloadMedia(event, '${file.data}', '${file.name}')" class="bg-blue-500 text-white p-2 rounded-full mb-2 hover:bg-blue-600 transition-colors duration-200">
-                            Stiahnuť
-                        </button>
-                        <button onclick="deleteMedia(${index})" class="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors duration-200">
-                            Vymazať
-                        </button>
-                    </div>
-                `;
-
-                galleryContainer.appendChild(card);
-            });
-        }
-        
-        // Funkcia na spracovanie nahravania suborov
-        fileInput.addEventListener('change', (event) => {
+        // Event listener pre spracovanie nahravania suborov
+        fileInput.addEventListener('change', async (event) => {
             const files = event.target.files;
             if (files.length === 0) return;
 
-            const mediaFiles = loadData();
             let filesProcessed = 0;
 
             for (const file of files) {
@@ -240,22 +276,29 @@
                     }
                 };
 
-                reader.onload = (e) => {
+                reader.onload = async (e) => {
                     const base64Data = e.target.result;
                     const newFile = {
                         name: file.name,
                         type: file.type,
-                        data: base64Data
+                        data: base64Data,
+                        userId: userId,
+                        timestamp: Date.now(),
+                        isBanned: false // Nový field pre moderovanie
                     };
-                    mediaFiles.push(newFile);
-                    saveData(mediaFiles);
+                    
+                    try {
+                        await addDoc(collection(db, `artifacts/${appId}/public/data/media`), newFile);
+                    } catch (e) {
+                        console.error("Chyba pri nahrávaní súboru do Firestore:", e);
+                        showMessage(`Chyba pri nahrávaní súboru ${file.name}.`, true);
+                    }
                     
                     filesProcessed++;
                     if (filesProcessed === files.length) {
                         showMessage("Všetky súbory boli úspešne nahrané!");
                         uploadStatus.textContent = 'Klikni pre nahratie fotky alebo videa';
                         progressBarContainer.classList.add('hidden');
-                        renderGallery();
                         fileInput.value = ''; // Resetovanie inputu
                     }
                 };
@@ -270,12 +313,78 @@
                 reader.readAsDataURL(file);
             }
         });
-        
-        // Nacitanie galerie pri spusteni stranky
-        window.addEventListener('load', renderGallery);
+
+        // Event listener pre moderátorský panel
+        moderatorLoginBtn.addEventListener('click', () => {
+            if (moderatorIdInput.value === userId) {
+                isModerator = true;
+                showMessage('Moderátorský režim aktivovaný!');
+            } else {
+                isModerator = false;
+                showMessage('Nesprávne ID moderátora. Zobrazujú sa len schválené fotky.', true);
+            }
+            moderatorIdInput.value = ''; // Vyčistíme pole
+            // Prihlásenie/odhlásenie moderátora spustí opätovné renderovanie
+            setupRealtimeListener();
+        });
+
+        // Nastaví real-time listener na Firestore
+        function setupRealtimeListener() {
+            if (db) {
+                const q = collection(db, `artifacts/${appId}/public/data/media`);
+                onSnapshot(q, (querySnapshot) => {
+                    const mediaFiles = [];
+                    querySnapshot.forEach((doc) => {
+                        mediaFiles.push({ ...doc.data(), id: doc.id });
+                    });
+                    renderGallery(mediaFiles);
+                }, (error) => {
+                    console.error("Chyba pri počúvaní Firestore:", error);
+                    showMessage("Chyba pri načítaní galérie. Skúste obnoviť stránku.", true);
+                });
+            }
+        }
+
+        // Inicializácia a autentifikácia Firebase
+        async function initializeFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // Prihlásenie
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        userIdDisplay.textContent = userId;
+                        moderatorSection.classList.remove('hidden');
+                        setupRealtimeListener(); // Spustíme listener po prihlásení
+                    } else {
+                        userId = null;
+                        userIdDisplay.textContent = "N/A";
+                        // Keď nie je prihlásený, nezobrazujeme moderátorské prvky a galéria je prázdna
+                        moderatorSection.classList.add('hidden');
+                        renderGallery([]);
+                    }
+                });
+            } catch (error) {
+                console.error("Chyba pri inicializácii Firebase:", error);
+                showMessage("Chyba pri pripojení k databáze. Skúste to prosím znova.", true);
+            }
+        }
+
+        // Spustenie inicializácie pri načítaní stránky
+        window.addEventListener('load', initializeFirebase);
     </script>
 </body>
 </html>
+
 
 
 
