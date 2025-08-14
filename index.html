@@ -85,6 +85,17 @@
         </div>
     </div>
 
+    <!-- Modal pre potvrdenie vymazania -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-xl w-full max-w-sm">
+            <p id="confirm-message" class="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">Naozaj chcete vymazať tento súbor?</p>
+            <div class="flex justify-end gap-2">
+                <button id="confirm-btn" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors duration-200">Vymazať</button>
+                <button id="cancel-btn" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-400 transition-colors duration-200">Zrušiť</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const fileInput = document.getElementById('file-input');
         const galleryContainer = document.getElementById('gallery-container');
@@ -95,9 +106,18 @@
         const imageModal = document.getElementById('image-modal');
         const modalImage = document.getElementById('modal-image');
         const closeModalButton = document.getElementById('close-modal');
+        
+        // Modal pre potvrdenie
+        const confirmModal = document.getElementById('confirm-modal');
+        const confirmMessage = document.getElementById('confirm-message');
+        const confirmBtn = document.getElementById('confirm-btn');
+        const cancelBtn = document.getElementById('cancel-btn');
 
         // Klúč pre localStorage
         const LOCAL_STORAGE_KEY = 'gpsm_gallery_media';
+
+        // Globálna premenná pre callback funkciu po potvrdení
+        let confirmCallback = null;
         
         // Funkcia na zobrazenie spravy pre uzivatela
         function showMessage(text, isError = false) {
@@ -107,6 +127,34 @@
                 : 'mt-4 text-center text-sm font-semibold text-green-500 dark:text-green-400';
             setTimeout(() => { messageBox.textContent = ''; }, 5000);
         }
+
+        // Funkcia na zobrazenie potvrdzovacieho modalu
+        function showConfirmModal(message, callback) {
+            confirmMessage.textContent = message;
+            confirmCallback = callback;
+            confirmModal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        // Funkcia na skrytie potvrdzovacieho modalu
+        function hideConfirmModal() {
+            confirmModal.classList.add('hidden');
+            document.body.style.overflow = 'auto';
+            confirmCallback = null;
+        }
+
+        // Event listener pre potvrdenie v modali
+        confirmBtn.addEventListener('click', () => {
+            if (confirmCallback) {
+                confirmCallback();
+            }
+            hideConfirmModal();
+        });
+
+        // Event listener pre zrusenie v modali
+        cancelBtn.addEventListener('click', () => {
+            hideConfirmModal();
+        });
 
         // Funkcia na ulozenie dát do localStorage
         function saveData(data) {
@@ -135,13 +183,14 @@
         function deleteMedia(index) {
             const mediaFiles = loadData();
             if (index >= 0 && index < mediaFiles.length) {
-                if (confirm('Naozaj chcete vymazať tento súbor?')) {
+                // Zobrazíme vlastný potvrdzovací modal namiesto window.confirm
+                showConfirmModal('Naozaj chcete vymazať tento súbor?', () => {
                     mediaFiles.splice(index, 1);
                     if (saveData(mediaFiles)) {
                         showMessage("Súbor bol úspešne vymazaný.");
                         renderGallery();
                     }
-                }
+                });
             }
         }
 
@@ -278,6 +327,8 @@
     </script>
 </body>
 </html>
+
+
 
 
 
