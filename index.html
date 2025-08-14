@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPSM Gallery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-image: url('https://deepai.org/static/image/album-photo-galery-apk.jpg');
+            background-size: cover;
+            background-attachment: fixed;
+            background-position: center;
+        }
+
+        .bg-white-transparent {
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .dark .bg-gray-800-transparent {
+            background-color: rgba(31, 41, 55, 0.3);
+        }
+    </style>
+</head>
+<body class="text-gray-900 dark:text-gray-100 p-4">
+
+    <!-- Hlavicka aplikácie -->
+    <header class="w-full max-w-4xl mx-auto bg-white-transparent dark:bg-gray-800-transparent rounded-xl shadow-lg p-6 mb-8 text-center backdrop-blur-sm">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-blue-600 dark:text-blue-400 mb-2">GPSM Gallery</h1>
+        <p class="text-lg text-gray-600 dark:text-gray-300">
+            Tvoja súkromná galéria. Fotky a videá sa ukladajú priamo vo vašom prehliadači.
+        </p>
+    </header>
+
+    <!-- Hlavny obsah -->
+    <main class="w-full max-w-4xl mx-auto flex-grow">
+        <!-- Vkladanie suborov -->
+        <div class="bg-white-transparent dark:bg-gray-800-transparent rounded-xl shadow-lg p-6 mb-6 backdrop-blur-sm">
+            <label for="file-input" class="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 cursor-pointer hover:bg-white-transparent dark:hover:bg-gray-800-transparent transition-all duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <span id="upload-status" class="mt-2 text-lg font-medium text-gray-600 dark:text-gray-300">
+                    Klikni pre nahratie fotky alebo videa
+                </span>
+                <input type="file" id="file-input" class="hidden" accept="image/*,video/*" multiple />
+            </label>
+            <div id="progress-bar-container" class="hidden w-full mt-4 bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style="width: 0%;"></div>
+            </div>
+            <p id="message-box" class="mt-4 text-center text-sm font-semibold text-red-500 dark:text-red-400"></p>
+        </div>
+
+        <!-- Galéria suborov -->
+        <div id="gallery-container" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <!-- Sem sa budú dynamicky vkladať médiá -->
+        </div>
+    </main>
+
+    <!-- Päticka aplikácie -->
+    <footer class="w-full max-w-4xl mx-auto mt-8 p-4 text-center text-gray-500 dark:text-gray-400">
+        <p>Autor: Kristián Stareček</p>
+        <p>Spoločnosť: GAMEPLA631</p>
+        <p>Telefón: <a href="tel:0951632704" class="text-blue-500 hover:underline">0951632704</a></p>
+        <p>Email: <a href="mailto:kralhororoviek@gmail.com" class="text-blue-500 hover:underline">kralhororoviek@gmail.com</a></p>
+        <p class="mt-4">&copy; 2025 GPSM Gallery. Všetky práva vyhradené.</p>
+    </footer>
+
+    <!-- Modal pre zobrazenie obrázka -->
+    <div id="image-modal" class="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50 hidden">
+        <div class="relative max-w-full max-h-full">
+            <button id="close-modal" class="absolute top-4 right-4 text-white text-3xl font-bold bg-gray-800 bg-opacity-50 rounded-full w-10 h-10 flex items-center justify-center">
+                &times;
+            </button>
+            <img id="modal-image" class="max-w-full max-h-screen object-contain" src="" alt="Zväčšený obrázok">
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('file-input');
+        const galleryContainer = document.getElementById('gallery-container');
+        const uploadStatus = document.getElementById('upload-status');
+        const progressBarContainer = document.getElementById('progress-bar-container');
+        const progressBar = document.getElementById('progress-bar');
+        const messageBox = document.getElementById('message-box');
+        const imageModal = document.getElementById('image-modal');
+        const modalImage = document.getElementById('modal-image');
+        const closeModalButton = document.getElementById('close-modal');
+
+        // Klúč pre localStorage
+        const LOCAL_STORAGE_KEY = 'gpsm_gallery_media';
+        
+        // Funkcia na zobrazenie spravy pre uzivatela
+        function showMessage(text, isError = false) {
+            messageBox.textContent = text;
+            messageBox.className = isError 
+                ? 'mt-4 text-center text-sm font-semibold text-red-500 dark:text-red-400' 
+                : 'mt-4 text-center text-sm font-semibold text-green-500 dark:text-green-400';
+            setTimeout(() => { messageBox.textContent = ''; }, 5000);
+        }
+
+        // Funkcia na ulozenie dát do localStorage
+        function saveData(data) {
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data));
+                return true;
+            } catch (e) {
+                console.error("Chyba pri ukladani do localStorage:", e);
+                showMessage("Chyba pri ukladani. Mozno mate plne ulozisko.", true);
+                return false;
+            }
+        }
+
+        // Funkcia na nacitanie dát z localStorage
+        function loadData() {
+            try {
+                const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+                return data ? JSON.parse(data) : [];
+            } catch (e) {
+                console.error("Chyba pri nacitavani z localStorage:", e);
+                return [];
+            }
+        }
+
+        // Funkcia na vymazanie média
+        function deleteMedia(index) {
+            const mediaFiles = loadData();
+            if (index >= 0 && index < mediaFiles.length) {
+                mediaFiles.splice(index, 1);
+                if (saveData(mediaFiles)) {
+                    showMessage("Súbor bol úspešne vymazaný.");
+                    renderGallery();
+                }
+            }
+        }
+
+        // Funkcia pre stiahnutie suboru
+        function downloadMedia(event, data, name) {
+            // Zastavenie šírenia udalosti, aby sa nekliklo na rodičovský element
+            event.stopPropagation(); 
+            const downloadLink = document.createElement('a');
+            downloadLink.href = data;
+            downloadLink.download = name;
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            showMessage(`Súbor ${name} sa sťahuje.`);
+        }
+
+        // Funkcia na otvorenie modalu s obrazkom
+        function openImageModal(data) {
+            modalImage.src = data;
+            imageModal.classList.remove('hidden');
+            document.body.style.overflow = 'hidden'; // Zabrani scrollovaniu pozadia
+        }
+
+        // Funkcia na zatvorenie modalu
+        function closeImageModal() {
+            imageModal.classList.add('hidden');
+            document.body.style.overflow = 'auto'; // Povoli scrollovanie pozadia
+            modalImage.src = '';
+        }
+
+        // Event listenery pre modal
+        closeModalButton.addEventListener('click', closeImageModal);
+        imageModal.addEventListener('click', (event) => {
+            if (event.target === imageModal) {
+                closeImageModal();
+            }
+        });
+
+        // Funkcia na renderovanie galerie
+        function renderGallery() {
+            const mediaFiles = loadData();
+            galleryContainer.innerHTML = ''; // Vymazanie existujucej galerie
+            if (mediaFiles.length === 0) {
+                galleryContainer.innerHTML = `<div class="w-full text-center col-span-full py-10 text-gray-500 dark:text-gray-400">Zatiaľ žiadne súbory. Nahrajte prvú fotku alebo video!</div>`;
+                return;
+            }
+            mediaFiles.forEach((file, index) => {
+                const card = document.createElement('div');
+                card.className = "relative aspect-square rounded-lg overflow-hidden shadow-lg transform transition-transform duration-200 hover:scale-105";
+                
+                let mediaElement;
+                if (file.type.startsWith('video/')) {
+                    mediaElement = `<video src="${file.data}" alt="Video" class="w-full h-full object-cover" preload="metadata" controls></video>`;
+                } else {
+                    mediaElement = `<img onclick="openImageModal('${file.data}')" src="${file.data}" alt="Obrázok" class="w-full h-full object-cover cursor-pointer" loading="lazy">`;
+                }
+                
+                card.innerHTML = `
+                    ${mediaElement}
+                    <div class="absolute inset-0 bg-black bg-opacity-40 flex flex-col items-center justify-center opacity-0 hover:opacity-100 transition-opacity duration-200">
+                        <button onclick="downloadMedia(event, '${file.data}', '${file.name}')" class="bg-blue-500 text-white p-2 rounded-full mb-2 hover:bg-blue-600 transition-colors duration-200">
+                            Stiahnuť
+                        </button>
+                        <button onclick="deleteMedia(${index})" class="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 transition-colors duration-200">
+                            Vymazať
+                        </button>
+                    </div>
+                `;
+
+                galleryContainer.appendChild(card);
+            });
+        }
+        
+        // Funkcia na spracovanie nahravania suborov
+        fileInput.addEventListener('change', (event) => {
+            const files = event.target.files;
+            if (files.length === 0) return;
+
+            const mediaFiles = loadData();
+            let filesProcessed = 0;
+
+            for (const file of files) {
+                if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) {
+                    showMessage(`Nepodporovaný typ súboru: ${file.name}`, true);
+                    continue;
+                }
+                
+                const reader = new FileReader();
+                reader.onloadstart = () => {
+                    uploadStatus.textContent = `Nahrávam ${file.name}...`;
+                    progressBarContainer.classList.remove('hidden');
+                };
+
+                reader.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const percent = (e.loaded / e.total) * 100;
+                        progressBar.style.width = `${percent}%`;
+                    }
+                };
+
+                reader.onload = (e) => {
+                    const base64Data = e.target.result;
+                    const newFile = {
+                        name: file.name,
+                        type: file.type,
+                        data: base64Data
+                    };
+                    mediaFiles.push(newFile);
+                    saveData(mediaFiles);
+                    
+                    filesProcessed++;
+                    if (filesProcessed === files.length) {
+                        showMessage("Všetky súbory boli úspešne nahrané!");
+                        uploadStatus.textContent = 'Klikni pre nahratie fotky alebo videa';
+                        progressBarContainer.classList.add('hidden');
+                        renderGallery();
+                        fileInput.value = ''; // Resetovanie inputu
+                    }
+                };
+                
+                reader.onerror = (e) => {
+                    console.error("Chyba pri citani suboru:", e);
+                    showMessage(`Chyba pri nahrávaní súboru ${file.name}.`, true);
+                    uploadStatus.textContent = 'Klikni pre nahratie fotky alebo videa';
+                    progressBarContainer.classList.add('hidden');
+                };
+                
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Nacitanie galerie pri spusteni stranky
+        window.addEventListener('load', renderGallery);
+    </script>
+</body>
+</html>
